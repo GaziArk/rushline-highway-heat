@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Rushline: Highway Heat</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="game-shell">
+    <section class="cockpit" aria-label="Rushline game">
+      <canvas id="gameCanvas" aria-label="Highway racing game"></canvas>
+
+      <div class="hud" aria-live="polite">
+        <div class="hud-pill">
+          <span>Speed</span>
+          <strong><b id="speedValue">0</b> km/h</strong>
+        </div>
+        <div class="hud-pill">
+          <span>Score</span>
+          <strong id="scoreValue">0</strong>
+        </div>
+        <div class="hud-pill">
+          <span>Distance</span>
+          <strong><b id="distanceValue">0.0</b> km</strong>
+        </div>
+      </div>
+
+      <div class="heat-panel">
+        <div class="heat-label">
+          <span>Heat Chain</span>
+          <strong id="comboValue">x1.0</strong>
+        </div>
+        <div class="heat-track">
+          <div id="heatFill" class="heat-fill"></div>
+        </div>
+      </div>
+
+      <div id="objectiveBar" class="objective-bar">Endless Drive</div>
+
+      <div class="touch-controls" aria-label="Driving controls">
+        <button id="leftBtn" class="control-btn" type="button" title="Steer left">‹</button>
+        <button id="brakeBtn" class="control-btn brake" type="button" title="Brake">BRAKE</button>
+        <button id="boostBtn" class="control-btn boost" type="button" title="Boost">BOOST</button>
+        <button id="rightBtn" class="control-btn" type="button" title="Steer right">›</button>
+      </div>
+
+      <div id="startOverlay" class="overlay">
+        <div class="modal">
+          <p class="eyebrow">Arcade traffic racer</p>
+          <h1>Rushline: Highway Heat</h1>
+
+          <div class="setup-grid">
+            <label>
+              Mode
+              <select id="modeSelect">
+                <option value="endless">Endless Drive</option>
+                <option value="time">Time Attack</option>
+                <option value="challenge">Near Miss Challenge</option>
+              </select>
+            </label>
+
+            <label>
+              Car
+              <select id="carSelect">
+                <option value="comet">Comet SX</option>
+                <option value="vandal">Vandal GT</option>
+                <option value="atlas">Atlas Runner</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="carStats" class="car-stats"></div>
+
+          <div class="modal-actions">
+            <button id="startBtn" class="primary" type="button">Start Run</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="resultOverlay" class="overlay hidden">
+        <div class="modal result">
+          <p class="eyebrow" id="resultKicker">Run complete</p>
+          <h2 id="resultTitle">Crashed</h2>
+          <div class="result-grid">
+            <div>
+              <span>Score</span>
+              <strong id="finalScore">0</strong>
+            </div>
+            <div>
+              <span>Distance</span>
+              <strong><b id="finalDistance">0.0</b> km</strong>
+            </div>
+            <div>
+              <span>Near Misses</span>
+              <strong id="finalNearMisses">0</strong>
+            </div>
+            <div>
+              <span>Coins</span>
+              <strong id="finalCoins">0</strong>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button id="restartBtn" class="primary" type="button">Race Again</button>
+            <button id="garageBtn" class="secondary" type="button">Garage</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
