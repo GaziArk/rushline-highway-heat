@@ -43,6 +43,105 @@ const SAVE_KEY = "rushline-highway-heat-save-v2";
 const MAX_UPGRADE_LEVEL = 5;
 const SCENERY_LOOP = 420;
 
+const ROAD_ZONES = [
+  {
+    name: "Metro Dawn",
+    startsAt: 0,
+    density: 0.92,
+    trafficSpeed: 0,
+    laneChange: 0.012,
+    pickupRate: 1.05,
+    scenerySpeed: 0.92,
+    sign: ["METRO", "AHEAD"],
+    palette: {
+      sky: ["#12304a", "#102033", "#071018"],
+      road: "#252d35",
+      roadDark: "#171e25",
+      edge: "rgba(255,255,255,0.76)",
+      lane: "rgba(255,255,255,0.46)",
+      groundA: "#0b1520",
+      groundB: "#152331",
+      skylineA: "rgba(18, 39, 58, 0.92)",
+      skylineB: "rgba(13, 28, 44, 0.92)",
+      accentA: "rgba(32, 199, 180, 0.18)",
+      accentB: "rgba(255, 176, 46, 0.18)",
+    },
+    traffic: ["sedan", "sedan", "taxi", "van", "bike"],
+  },
+  {
+    name: "Industrial Belt",
+    startsAt: 850,
+    density: 1.08,
+    trafficSpeed: 6,
+    laneChange: 0.015,
+    pickupRate: 0.95,
+    scenerySpeed: 1,
+    sign: ["WORK", "ZONE"],
+    palette: {
+      sky: ["#1f2933", "#141c24", "#080d13"],
+      road: "#2b3034",
+      roadDark: "#181d21",
+      edge: "rgba(255, 224, 148, 0.74)",
+      lane: "rgba(255,255,255,0.42)",
+      groundA: "#141b20",
+      groundB: "#252b2d",
+      skylineA: "rgba(48, 55, 58, 0.95)",
+      skylineB: "rgba(33, 40, 43, 0.95)",
+      accentA: "rgba(255, 176, 46, 0.22)",
+      accentB: "rgba(226, 91, 69, 0.16)",
+    },
+    traffic: ["sedan", "van", "van", "bus", "taxi"],
+  },
+  {
+    name: "Neon Cut",
+    startsAt: 1900,
+    density: 1.24,
+    trafficSpeed: 12,
+    laneChange: 0.019,
+    pickupRate: 1.1,
+    scenerySpeed: 1.08,
+    sign: ["HEAT", "RISING"],
+    palette: {
+      sky: ["#17204d", "#10143a", "#070914"],
+      road: "#252a38",
+      roadDark: "#151925",
+      edge: "rgba(32, 199, 180, 0.82)",
+      lane: "rgba(126, 231, 255, 0.48)",
+      groundA: "#111329",
+      groundB: "#182448",
+      skylineA: "rgba(23, 43, 86, 0.95)",
+      skylineB: "rgba(18, 28, 64, 0.95)",
+      accentA: "rgba(32, 199, 180, 0.30)",
+      accentB: "rgba(255, 82, 151, 0.22)",
+    },
+    traffic: ["sedan", "taxi", "taxi", "bike", "bike", "van"],
+  },
+  {
+    name: "Storm Run",
+    startsAt: 3300,
+    density: 1.42,
+    trafficSpeed: 18,
+    laneChange: 0.024,
+    pickupRate: 0.86,
+    scenerySpeed: 1.18,
+    sign: ["STORM", "RUN"],
+    palette: {
+      sky: ["#273241", "#151d27", "#06090d"],
+      road: "#202831",
+      roadDark: "#121820",
+      edge: "rgba(168, 209, 231, 0.70)",
+      lane: "rgba(212, 238, 255, 0.40)",
+      groundA: "#111923",
+      groundB: "#1f2a35",
+      skylineA: "rgba(31, 46, 60, 0.95)",
+      skylineB: "rgba(24, 35, 48, 0.95)",
+      accentA: "rgba(79, 140, 255, 0.24)",
+      accentB: "rgba(32, 199, 180, 0.14)",
+    },
+    traffic: ["sedan", "van", "bus", "bus", "bike", "taxi"],
+  },
+];
+
 const BASE_CARS = {
   comet: {
     name: "Comet SX",
@@ -127,6 +226,10 @@ function createState() {
     pausedFrom: "running",
     mode,
     car,
+    zone: ROAD_ZONES[0],
+    zoneIndex: 0,
+    zoneProgress: 0,
+    zoneMessageTimer: 0,
     speed: 0,
     score: 0,
     distance: 0,
@@ -218,8 +321,10 @@ function update(dt) {
   state.elapsed += dt;
   state.grace = Math.max(0, state.grace - dt);
   state.messageTimer = Math.max(0, state.messageTimer - dt);
+  state.zoneMessageTimer = Math.max(0, state.zoneMessageTimer - dt);
   state.shake = Math.max(0, state.shake - dt * 18);
-  state.difficulty = clamp(1 + state.distance / 2600 + state.elapsed / 210, 1, 2.35);
+  updateZone();
+  state.difficulty = clamp(state.zone.density + state.zoneProgress * 0.32 + state.elapsed / 520, 0.9, 2.55);
 
   const boostActive = input.boost && state.boostEnergy > 1 && state.speed > 72;
   state.boosting = boostActive;
@@ -243,7 +348,7 @@ function update(dt) {
   const meters = (state.speed * 1000 / 3600) * dt;
   state.distance += meters;
   state.roadOffset = (state.roadOffset + state.speed * 2.45 * dt) % 80;
-  state.sceneryOffset += Math.max(90, state.speed * 2.05) * dt;
+  state.sceneryOffset += Math.max(90, state.speed * 2.05) * state.zone.scenerySpeed * dt;
   state.heat = Math.max(0, state.heat - (boostActive ? 2.5 : 7.2) * dt);
   state.combo = 1 + Math.floor(state.heat / 20) * 0.25;
   state.score += meters * 10 * state.combo;
@@ -277,7 +382,7 @@ function spawnTraffic(dt) {
   }
   if (!openLanes.length) return;
 
-  const template = TRAFFIC[Math.floor(Math.random() * TRAFFIC.length)];
+  const template = chooseTrafficTemplate();
   const lane = openLanes[Math.floor(Math.random() * openLanes.length)];
   const width = clamp(view.laneWidth * template.width, 24, 62);
   const height = width * template.height;
@@ -289,7 +394,7 @@ function spawnTraffic(dt) {
     y: -height - Math.random() * 220,
     w: width,
     h: height,
-    speed: random(template.speed[0], template.speed[1] + state.difficulty * 8),
+    speed: random(template.speed[0] + state.zone.trafficSpeed * 0.45, template.speed[1] + state.zone.trafficSpeed + state.difficulty * 8),
     passed: false,
     nearMissed: false,
     laneShiftTimer: random(2, 5),
@@ -302,7 +407,7 @@ function spawnPickups(dt) {
   state.pickupTimer -= dt;
   if (state.pickupTimer > 0 || state.elapsed < 5) return;
 
-  state.pickupTimer = random(1.8, 3.4);
+  state.pickupTimer = random(1.8, 3.4) / state.zone.pickupRate;
   const lane = Math.floor(Math.random() * LANES);
   const type = Math.random() < 0.78 ? "coin" : "shield";
   const size = type === "coin" ? 19 : 22;
@@ -315,6 +420,40 @@ function spawnPickups(dt) {
     collected: false,
     spin: random(0, Math.PI * 2),
   });
+}
+
+function updateZone() {
+  const zoneIndex = getZoneIndex(state.distance);
+  const zone = ROAD_ZONES[zoneIndex];
+  const nextZone = ROAD_ZONES[zoneIndex + 1];
+  const zoneStart = zone.startsAt;
+  const zoneEnd = nextZone ? nextZone.startsAt : zone.startsAt + 1800;
+  state.zoneProgress = clamp((state.distance - zoneStart) / Math.max(1, zoneEnd - zoneStart), 0, 1);
+
+  if (zoneIndex !== state.zoneIndex) {
+    state.zoneIndex = zoneIndex;
+    state.zone = zone;
+    state.zoneMessageTimer = 1.6;
+    state.messageFlash = zone.name;
+    state.messageTimer = 1.1;
+    playTone(260 + zoneIndex * 90, 0.12, "triangle", 0.035);
+  } else {
+    state.zone = zone;
+  }
+}
+
+function getZoneIndex(distance) {
+  let index = 0;
+  for (let i = 0; i < ROAD_ZONES.length; i += 1) {
+    if (distance >= ROAD_ZONES[i].startsAt) index = i;
+  }
+  return index;
+}
+
+function chooseTrafficTemplate() {
+  const pool = state.zone?.traffic || TRAFFIC.map((item) => item.type);
+  const type = pool[Math.floor(Math.random() * pool.length)];
+  return TRAFFIC.find((item) => item.type === type) || TRAFFIC[0];
 }
 
 function updateTraffic(dt) {
@@ -360,7 +499,7 @@ function updatePickups(dt) {
 }
 
 function maybeShiftTrafficLane(car) {
-  const chance = 0.012 + state.difficulty * 0.004;
+  const chance = state.zone.laneChange + state.difficulty * 0.004;
   if (car.laneShiftTimer > 0 || car.y < 60 || Math.random() > chance) return;
   car.laneShiftTimer = random(2.5, 5);
   const direction = Math.random() > 0.5 ? 1 : -1;
@@ -497,29 +636,33 @@ function draw() {
 
 function drawWorld() {
   const horizon = view.height * 0.08;
+  const palette = activePalette();
   const gradient = ctx.createLinearGradient(0, 0, 0, view.height);
-  gradient.addColorStop(0, "#102337");
-  gradient.addColorStop(0.45, "#101923");
-  gradient.addColorStop(1, "#070b10");
+  gradient.addColorStop(0, palette.sky[0]);
+  gradient.addColorStop(0.48, palette.sky[1]);
+  gradient.addColorStop(1, palette.sky[2]);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, view.width, view.height);
 
-  drawCitySide(0, view.roadLeft - 12, horizon, -1);
-  drawCitySide(view.roadLeft + view.roadWidth + 12, view.width, horizon, 1);
+  drawCitySide(0, view.roadLeft - 12, horizon, -1, palette);
+  drawCitySide(view.roadLeft + view.roadWidth + 12, view.width, horizon, 1, palette);
 
-  ctx.fillStyle = "#151b21";
+  ctx.fillStyle = palette.roadDark;
   ctx.fillRect(view.roadLeft - 22, 0, view.roadWidth + 44, view.height);
-  ctx.fillStyle = "#232a31";
+  ctx.fillStyle = palette.road;
   ctx.fillRect(view.roadLeft, 0, view.roadWidth, view.height);
 
   const edgeGradient = ctx.createLinearGradient(view.roadLeft, 0, view.roadLeft + view.roadWidth, 0);
-  edgeGradient.addColorStop(0, "rgba(255,255,255,0.10)");
-  edgeGradient.addColorStop(0.5, "rgba(255,255,255,0)");
-  edgeGradient.addColorStop(1, "rgba(255,255,255,0.10)");
+  edgeGradient.addColorStop(0, palette.accentA);
+  edgeGradient.addColorStop(0.18, "rgba(255,255,255,0)");
+  edgeGradient.addColorStop(0.82, "rgba(255,255,255,0)");
+  edgeGradient.addColorStop(1, palette.accentB);
   ctx.fillStyle = edgeGradient;
   ctx.fillRect(view.roadLeft, 0, view.roadWidth, view.height);
 
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.82)";
+  drawAsphaltTexture(palette);
+
+  ctx.strokeStyle = palette.edge;
   ctx.lineWidth = 3;
   ctx.setLineDash([]);
   ctx.beginPath();
@@ -529,7 +672,7 @@ function drawWorld() {
   ctx.lineTo(view.roadLeft + view.roadWidth - 3, view.height);
   ctx.stroke();
 
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.48)";
+  ctx.strokeStyle = palette.lane;
   ctx.lineWidth = 2;
   ctx.setLineDash([28, 52]);
   ctx.lineDashOffset = state ? state.roadOffset : 0;
@@ -545,25 +688,25 @@ function drawWorld() {
   drawRoadSign();
 }
 
-function drawCitySide(left, right, horizon, side) {
+function drawCitySide(left, right, horizon, side, palette) {
   if (right <= left) return;
   const width = right - left;
   const roadEdge = side < 0 ? right : left;
   const shoulderX = side < 0 ? right - Math.min(34, width) : left;
   const shoulderW = Math.min(34, width);
 
-  ctx.fillStyle = "#0d1722";
+  ctx.fillStyle = palette.sky[2];
   ctx.fillRect(left, horizon, width, view.height - horizon);
 
-  drawDistantSkyline(left, right, horizon, side);
+  drawDistantSkyline(left, right, horizon, side, palette);
 
   const ground = ctx.createLinearGradient(left, horizon, right, horizon);
   if (side < 0) {
-    ground.addColorStop(0, "#0b1520");
-    ground.addColorStop(1, "#152331");
+    ground.addColorStop(0, palette.groundA);
+    ground.addColorStop(1, palette.groundB);
   } else {
-    ground.addColorStop(0, "#152331");
-    ground.addColorStop(1, "#0b1520");
+    ground.addColorStop(0, palette.groundB);
+    ground.addColorStop(1, palette.groundA);
   }
   ctx.fillStyle = ground;
   ctx.fillRect(left, horizon + 82, width, view.height - horizon - 82);
@@ -579,17 +722,17 @@ function drawCitySide(left, right, horizon, side) {
   ctx.fillStyle = "rgba(255, 255, 255, 0.10)";
   ctx.fillRect(shoulderX, horizon, shoulderW, view.height - horizon);
 
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+  ctx.strokeStyle = palette.accentA;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(roadEdge, horizon);
   ctx.lineTo(roadEdge, view.height);
   ctx.stroke();
 
-  drawRoadsidePosts(roadEdge, horizon, side);
+  drawRoadsidePosts(roadEdge, horizon, side, palette);
 }
 
-function drawDistantSkyline(left, right, horizon, side) {
+function drawDistantSkyline(left, right, horizon, side, palette) {
   const width = right - left;
   const buildingCount = Math.max(4, Math.ceil(width / 38));
 
@@ -600,10 +743,10 @@ function drawDistantSkyline(left, right, horizon, side) {
     const h = 54 + ((i * 31 + (side > 0 ? 13 : 0)) % 86);
     const y = horizon + 80 - h;
 
-    ctx.fillStyle = i % 2 ? "rgba(19, 40, 58, 0.92)" : "rgba(15, 31, 48, 0.92)";
+    ctx.fillStyle = i % 2 ? palette.skylineA : palette.skylineB;
     ctx.fillRect(x, y, buildingW, h);
 
-    ctx.fillStyle = i % 3 === 0 ? "rgba(255, 176, 46, 0.20)" : "rgba(32, 199, 180, 0.16)";
+    ctx.fillStyle = i % 3 === 0 ? palette.accentB : palette.accentA;
     const windowCols = Math.max(1, Math.floor(buildingW / 13));
     for (let col = 0; col < windowCols; col += 1) {
       for (let row = 0; row < 3; row += 1) {
@@ -615,7 +758,7 @@ function drawDistantSkyline(left, right, horizon, side) {
   }
 }
 
-function drawRoadsidePosts(roadEdge, horizon, side) {
+function drawRoadsidePosts(roadEdge, horizon, side, palette) {
   const spacing = 118;
   const offset = (state?.sceneryOffset || 0) % spacing;
   const xBase = roadEdge + side * 14;
@@ -629,17 +772,39 @@ function drawRoadsidePosts(roadEdge, horizon, side) {
     const x = xBase + side * depth * 18;
     const postH = 18 + scale * 34;
 
-    ctx.strokeStyle = "rgba(215, 225, 230, 0.28)";
+    ctx.strokeStyle = palette.edge;
+    ctx.globalAlpha = 0.28;
     ctx.lineWidth = Math.max(1, 2 * scale);
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(x, y + postH);
     ctx.stroke();
+    ctx.globalAlpha = 1;
 
-    ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+    ctx.fillStyle = palette.accentA;
     roundRect(x - scale * 4, y - scale * 2, scale * 8, scale * 5, scale * 2);
     ctx.fill();
   }
+}
+
+function drawAsphaltTexture(palette) {
+  const offset = state ? state.roadOffset % 44 : 0;
+  ctx.save();
+  ctx.globalAlpha = 0.22;
+  for (let i = -1; i < 24; i += 1) {
+    const y = i * 44 + offset;
+    const leftFleck = view.roadLeft + 18 + ((i * 37) % Math.max(1, view.roadWidth - 60));
+    const rightFleck = view.roadLeft + 34 + ((i * 61 + 25) % Math.max(1, view.roadWidth - 78));
+    ctx.fillStyle = "rgba(255,255,255,0.16)";
+    ctx.fillRect(leftFleck, y, 18, 1);
+    ctx.fillStyle = "rgba(0,0,0,0.18)";
+    ctx.fillRect(rightFleck, y + 21, 28, 1);
+  }
+  ctx.globalAlpha = 0.42;
+  ctx.fillStyle = palette.roadDark;
+  ctx.fillRect(view.roadLeft, 0, 8, view.height);
+  ctx.fillRect(view.roadLeft + view.roadWidth - 8, 0, 8, view.height);
+  ctx.restore();
 }
 
 function drawRoadSign() {
@@ -650,7 +815,7 @@ function drawRoadSign() {
 
   for (let i = -1; i < 3; i += 1) {
     const y = startY + i * spacing;
-    if (y < -130 || y > view.height + 120) continue;
+    if (y < -130 || y > view.height - 150) continue;
 
     const depth = clamp(y / view.height, 0, 1);
     const scale = 0.58 + depth * 0.48;
@@ -677,11 +842,12 @@ function drawRoadSign() {
     ctx.lineWidth = Math.max(1, 2 * scale);
     ctx.stroke();
 
+    const label = state.zone?.sign || ["RUSH", "AHEAD"];
     ctx.fillStyle = "#081019";
     ctx.font = `900 ${Math.max(8, 11 * scale)}px Inter, system-ui, sans-serif`;
     ctx.textAlign = "center";
-    ctx.fillText("RUSH", x + signW / 2, y + 14 * scale);
-    ctx.fillText("AHEAD", x + signW / 2, y + 27 * scale);
+    ctx.fillText(label[0], x + signW / 2, y + 14 * scale);
+    ctx.fillText(label[1], x + signW / 2, y + 27 * scale);
     ctx.restore();
   }
 }
@@ -747,47 +913,117 @@ function drawCar(x, y, w, h, color, isPlayer, type) {
   ctx.save();
   ctx.translate(x, y);
   ctx.fillStyle = "rgba(0, 0, 0, 0.34)";
-  roundRect(-w * 0.54, h * 0.4, w * 1.08, h * 0.18, 9);
+  ctx.beginPath();
+  ctx.ellipse(0, h * 0.45, w * 0.62, h * 0.12, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  const body = ctx.createLinearGradient(0, -h * 0.52, 0, h * 0.52);
-  body.addColorStop(0, lighten(color, 0.18));
-  body.addColorStop(0.5, color);
-  body.addColorStop(1, darken(color, 0.18));
-  ctx.fillStyle = body;
-  roundRect(-w / 2, -h / 2, w, h, w * 0.18);
-  ctx.fill();
+  if (type === "bike") {
+    drawBikeModel(w, h, color);
+    ctx.restore();
+    return;
+  }
 
-  ctx.fillStyle = "rgba(255, 255, 255, 0.20)";
-  roundRect(-w * 0.34, -h * 0.28, w * 0.68, h * 0.22, 7);
-  ctx.fill();
-
-  ctx.fillStyle = "rgba(5, 12, 18, 0.58)";
-  roundRect(-w * 0.32, h * 0.06, w * 0.64, h * 0.22, 7);
-  ctx.fill();
+  const isBus = type === "bus";
+  const isVan = type === "van";
+  const radius = isBus ? w * 0.1 : w * 0.18;
+  const shoulder = isBus ? 0.48 : isVan ? 0.44 : 0.39;
+  const cabinTop = isBus ? -0.36 : isVan ? -0.3 : -0.28;
+  const cabinH = isBus ? 0.58 : isVan ? 0.42 : 0.35;
 
   ctx.fillStyle = "#05080b";
-  roundRect(-w * 0.58, -h * 0.32, w * 0.16, h * 0.26, 4);
-  roundRect(w * 0.42, -h * 0.32, w * 0.16, h * 0.26, 4);
-  roundRect(-w * 0.58, h * 0.16, w * 0.16, h * 0.26, 4);
-  roundRect(w * 0.42, h * 0.16, w * 0.16, h * 0.26, 4);
-  ctx.fill();
+  drawWheel(-w * 0.55, -h * 0.3, w * 0.16, h * 0.26);
+  drawWheel(w * 0.39, -h * 0.3, w * 0.16, h * 0.26);
+  drawWheel(-w * 0.55, h * 0.17, w * 0.16, h * 0.27);
+  drawWheel(w * 0.39, h * 0.17, w * 0.16, h * 0.27);
+
+  const body = ctx.createLinearGradient(0, -h * 0.52, 0, h * 0.52);
+  body.addColorStop(0, lighten(color, 0.2));
+  body.addColorStop(0.42, color);
+  body.addColorStop(1, darken(color, 0.2));
+  ctx.fillStyle = body;
+  fillRoundRect(-w / 2, -h / 2, w, h, radius);
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+  fillRoundRect(-w * shoulder, -h * 0.44, w * shoulder * 2, h * 0.18, radius * 0.65);
+
+  ctx.fillStyle = "rgba(5, 12, 18, 0.58)";
+  fillRoundRect(-w * 0.34, h * cabinTop, w * 0.68, h * cabinH, radius * 0.72);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = Math.max(1, w * 0.025);
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.36, -h * 0.08);
+  ctx.lineTo(w * 0.36, -h * 0.08);
+  ctx.moveTo(-w * 0.36, h * 0.24);
+  ctx.lineTo(w * 0.36, h * 0.24);
+  ctx.stroke();
+
+  if (isBus) {
+    ctx.fillStyle = "rgba(255,255,255,0.20)";
+    for (let i = 0; i < 4; i += 1) {
+      fillRoundRect(-w * 0.34 + i * w * 0.19, -h * 0.18, w * 0.12, h * 0.12, 3);
+    }
+  }
+
+  if (type === "taxi") {
+    ctx.fillStyle = "rgba(8,16,25,0.72)";
+    fillRoundRect(-w * 0.22, -h * 0.55, w * 0.44, h * 0.09, 4);
+    ctx.fillStyle = "#ffef9d";
+    ctx.font = `900 ${Math.max(6, w * 0.16)}px Inter, system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("TAXI", 0, -h * 0.505);
+  }
+
+  ctx.fillStyle = isPlayer ? "rgba(198, 255, 247, 0.86)" : "rgba(244, 248, 255, 0.72)";
+  fillRoundRect(-w * 0.34, -h * 0.47, w * 0.25, h * 0.045, 2);
+  fillRoundRect(w * 0.09, -h * 0.47, w * 0.25, h * 0.045, 2);
+
+  ctx.fillStyle = "rgba(255, 70, 70, 0.82)";
+  fillRoundRect(-w * 0.33, h * 0.43, w * 0.2, h * 0.045, 2);
+  fillRoundRect(w * 0.13, h * 0.43, w * 0.2, h * 0.045, 2);
 
   if (isPlayer) {
-    ctx.fillStyle = state.boosting ? "rgba(255, 176, 46, 0.62)" : "rgba(32, 199, 180, 0.38)";
+    ctx.fillStyle = state.boosting ? "rgba(255, 176, 46, 0.70)" : "rgba(32, 199, 180, 0.42)";
     ctx.beginPath();
     ctx.moveTo(-w * 0.22, h * 0.52);
-    ctx.lineTo(0, h * 0.9 + state.speed * 0.08);
+    ctx.lineTo(0, h * (state.boosting ? 1.06 : 0.86) + state.speed * 0.07);
     ctx.lineTo(w * 0.22, h * 0.52);
     ctx.closePath();
     ctx.fill();
-  } else if (type !== "bike") {
-    ctx.fillStyle = "rgba(255, 70, 70, 0.78)";
-    ctx.fillRect(-w * 0.3, h * 0.43, w * 0.18, 4);
-    ctx.fillRect(w * 0.12, h * 0.43, w * 0.18, 4);
+
+    ctx.strokeStyle = "rgba(255,255,255,0.34)";
+    ctx.lineWidth = Math.max(1, w * 0.03);
+    ctx.beginPath();
+    ctx.moveTo(0, -h * 0.47);
+    ctx.lineTo(0, h * 0.36);
+    ctx.stroke();
   }
 
   ctx.restore();
+}
+
+function drawBikeModel(w, h, color) {
+  ctx.strokeStyle = "#060b0f";
+  ctx.lineWidth = Math.max(3, w * 0.16);
+  ctx.beginPath();
+  ctx.moveTo(0, -h * 0.42);
+  ctx.lineTo(0, h * 0.42);
+  ctx.stroke();
+
+  ctx.fillStyle = darken(color, 0.14);
+  fillRoundRect(-w * 0.25, -h * 0.32, w * 0.5, h * 0.64, w * 0.16);
+  ctx.fillStyle = lighten(color, 0.22);
+  fillRoundRect(-w * 0.18, -h * 0.12, w * 0.36, h * 0.22, w * 0.12);
+
+  ctx.fillStyle = "rgba(244,248,255,0.76)";
+  fillRoundRect(-w * 0.16, -h * 0.5, w * 0.32, h * 0.08, 3);
+  ctx.fillStyle = "rgba(255,70,70,0.78)";
+  fillRoundRect(-w * 0.14, h * 0.44, w * 0.28, h * 0.06, 3);
+}
+
+function drawWheel(x, y, w, h) {
+  fillRoundRect(x, y, w, h, Math.min(w, h) * 0.45);
 }
 
 function drawBoostGauge() {
@@ -912,7 +1148,7 @@ function updateHud() {
   } else if (state.mode === MODES.challenge) {
     objectiveBar.textContent = `${state.nearMisses}/${state.mode.target} near misses`;
   } else {
-    objectiveBar.textContent = `${state.mode.label} - ${state.overtakes} overtakes`;
+    objectiveBar.textContent = `${state.zone.name} - ${state.overtakes} overtakes`;
   }
 }
 
@@ -1083,6 +1319,15 @@ function approach(value, target, amount) {
 
 function random(min, max) {
   return min + Math.random() * (max - min);
+}
+
+function activePalette() {
+  return state?.zone?.palette || ROAD_ZONES[0].palette;
+}
+
+function fillRoundRect(x, y, w, h, r) {
+  roundRect(x, y, w, h, r);
+  ctx.fill();
 }
 
 function roundRect(x, y, w, h, r) {

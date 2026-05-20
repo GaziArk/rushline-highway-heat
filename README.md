@@ -6,6 +6,16 @@ Mobile-first arcade traffic racing game inspired by Traffic Racer.
 
 Open `index.html` in a browser.
 
+## Live Test
+
+Run this from the project folder to test the local game in a real Chrome session without publishing to GitHub Pages first:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\live-test.ps1
+```
+
+The test starts a temporary local server, opens a separate off-screen Chrome test profile, presses **Start Run**, lets the game run briefly, checks for runtime errors, and writes a mobile screenshot to `tools/live-test-mobile.png`. The screenshot, logs, and temporary browser profiles are ignored by Git.
+
 ## Features
 
 - Endless Drive, Time Attack, and Near Miss Challenge modes
