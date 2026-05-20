@@ -141,6 +141,7 @@ function createState() {
     playerW: 44,
     playerH: 82,
     roadOffset: 0,
+    sceneryOffset: 0,
     traffic: [],
     pickups: [],
     particles: [],
@@ -241,6 +242,7 @@ function update(dt) {
   const meters = (state.speed * 1000 / 3600) * dt;
   state.distance += meters;
   state.roadOffset = (state.roadOffset + state.speed * 2.45 * dt) % 80;
+  state.sceneryOffset = (state.sceneryOffset + Math.max(90, state.speed * 2.05) * dt) % (view.height + 360);
   state.heat = Math.max(0, state.heat - (boostActive ? 2.5 : 7.2) * dt);
   state.combo = 1 + Math.floor(state.heat / 20) * 0.25;
   state.score += meters * 10 * state.combo;
@@ -565,16 +567,46 @@ function drawCitySide(left, right, horizon) {
 
 function drawRoadSign() {
   if (!state || view.width < 560) return;
-  const x = view.roadLeft + view.roadWidth + 26;
-  const y = 220 + ((state.roadOffset * 1.5) % 160);
-  ctx.fillStyle = "rgba(255, 176, 46, 0.84)";
-  roundRect(x, y, 72, 34, 5);
-  ctx.fill();
-  ctx.fillStyle = "#081019";
-  ctx.font = "900 11px Inter, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText("RUSH", x + 36, y + 14);
-  ctx.fillText("AHEAD", x + 36, y + 27);
+  const roadRight = view.roadLeft + view.roadWidth;
+  const spacing = 420;
+  const startY = -150 + state.sceneryOffset;
+
+  for (let i = -1; i < 3; i += 1) {
+    const y = startY + i * spacing;
+    if (y < -130 || y > view.height + 120) continue;
+
+    const depth = clamp(y / view.height, 0, 1);
+    const scale = 0.58 + depth * 0.48;
+    const x = roadRight + 22 + depth * 22;
+    const poleTop = y + 24 * scale;
+    const poleBottom = y + 104 * scale;
+    const signW = 72 * scale;
+    const signH = 34 * scale;
+
+    ctx.save();
+    ctx.globalAlpha = 0.28 + depth * 0.72;
+    ctx.strokeStyle = "rgba(215, 225, 230, 0.72)";
+    ctx.lineWidth = Math.max(2, 3 * scale);
+    ctx.beginPath();
+    ctx.moveTo(x + signW * 0.5, poleTop);
+    ctx.lineTo(x + signW * 0.5, poleBottom);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(255, 176, 46, 0.88)";
+    roundRect(x, y, signW, signH, 5 * scale);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(8, 16, 25, 0.32)";
+    ctx.lineWidth = Math.max(1, 2 * scale);
+    ctx.stroke();
+
+    ctx.fillStyle = "#081019";
+    ctx.font = `900 ${Math.max(8, 11 * scale)}px Inter, system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText("RUSH", x + signW / 2, y + 14 * scale);
+    ctx.fillText("AHEAD", x + signW / 2, y + 27 * scale);
+    ctx.restore();
+  }
 }
 
 function drawTraffic() {
