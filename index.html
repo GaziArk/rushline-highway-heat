@@ -26,6 +26,11 @@
         </div>
       </div>
 
+      <div class="utility-controls" aria-label="Run controls">
+        <button id="pauseBtn" class="utility-btn" type="button">Pause</button>
+        <button id="muteBtn" class="utility-btn" type="button">Sound On</button>
+      </div>
+
       <div class="heat-panel">
         <div class="heat-label">
           <span>Heat Chain</span>
@@ -34,15 +39,19 @@
         <div class="heat-track">
           <div id="heatFill" class="heat-fill"></div>
         </div>
+        <div class="run-badges">
+          <span id="runCoinsValue">0 coins</span>
+          <span id="shieldValue">Shield off</span>
+        </div>
       </div>
 
       <div id="objectiveBar" class="objective-bar">Endless Drive</div>
 
       <div class="touch-controls" aria-label="Driving controls">
-        <button id="leftBtn" class="control-btn" type="button" title="Steer left">‹</button>
+        <button id="leftBtn" class="control-btn" type="button" title="Steer left">&lsaquo;</button>
         <button id="brakeBtn" class="control-btn brake" type="button" title="Brake">BRAKE</button>
         <button id="boostBtn" class="control-btn boost" type="button" title="Boost">BOOST</button>
-        <button id="rightBtn" class="control-btn" type="button" title="Steer right">›</button>
+        <button id="rightBtn" class="control-btn" type="button" title="Steer right">&rsaquo;</button>
       </div>
 
       <div id="startOverlay" class="overlay">
@@ -72,8 +81,24 @@
 
           <div id="carStats" class="car-stats"></div>
 
+          <div class="garage-strip" aria-live="polite">
+            <span id="bankCoinsValue">0 bank coins</span>
+            <span id="bestScoreValue">Best 0</span>
+          </div>
+
           <div class="modal-actions">
             <button id="startBtn" class="primary" type="button">Start Run</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="pauseOverlay" class="overlay hidden">
+        <div class="modal compact">
+          <p class="eyebrow">Run paused</p>
+          <h2>Take a breath</h2>
+          <div class="modal-actions">
+            <button id="resumeBtn" class="primary" type="button">Resume</button>
+            <button id="endRunBtn" class="secondary" type="button">End Run</button>
           </div>
         </div>
       </div>
@@ -98,6 +123,14 @@
             <div>
               <span>Coins</span>
               <strong id="finalCoins">0</strong>
+            </div>
+            <div>
+              <span>Best Score</span>
+              <strong id="finalBestScore">0</strong>
+            </div>
+            <div>
+              <span>Run Time</span>
+              <strong><b id="finalRunTime">0</b>s</strong>
             </div>
           </div>
           <div class="modal-actions">

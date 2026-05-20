@@ -82,6 +82,33 @@ select {
   pointer-events: none;
 }
 
+.utility-controls {
+  position: absolute;
+  top: 146px;
+  right: 14px;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+}
+
+.utility-btn {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: rgba(12, 18, 25, 0.78);
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.utility-btn:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
 .hud-pill,
 .objective-bar,
 .heat-panel,
@@ -146,6 +173,35 @@ select {
   border-radius: inherit;
   background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--danger));
   transition: width 120ms linear;
+}
+
+.run-badges,
+.garage-strip {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.run-badges {
+  margin-top: 9px;
+}
+
+.run-badges span,
+.garage-strip span {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.run-badges span.active {
+  color: #fff3c2;
+  border-color: rgba(255, 176, 46, 0.58);
+  background: rgba(255, 176, 46, 0.16);
 }
 
 .objective-bar {
@@ -226,6 +282,10 @@ select {
   box-shadow: 0 24px 90px rgba(0, 0, 0, 0.44);
 }
 
+.modal.compact {
+  width: min(420px, 100%);
+}
+
 .eyebrow {
   margin: 0 0 6px;
   color: var(--accent);
@@ -283,6 +343,7 @@ select {
 }
 
 .car-stats div,
+.upgrade-card,
 .result-grid div {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -301,6 +362,31 @@ select {
 .car-stats strong {
   display: block;
   margin-top: 4px;
+}
+
+.upgrade-card {
+  display: grid;
+  gap: 8px;
+}
+
+.upgrade-card button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(32, 199, 180, 0.18);
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.upgrade-card button:disabled {
+  cursor: default;
+  opacity: 0.46;
+}
+
+.garage-strip {
+  margin-top: 12px;
 }
 
 .modal-actions {
@@ -365,6 +451,18 @@ select {
     gap: 6px;
   }
 
+  .utility-controls {
+    top: 132px;
+    right: 10px;
+    flex-direction: column;
+  }
+
+  .utility-btn {
+    min-height: 30px;
+    padding: 0 8px;
+    font-size: 0.64rem;
+  }
+
   .hud-pill {
     padding: 8px;
   }
@@ -421,5 +519,10 @@ select {
   .setup-grid,
   .car-stats {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .garage-strip,
+  .run-badges {
+    flex-direction: column;
   }
 }

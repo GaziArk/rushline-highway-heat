@@ -7,11 +7,18 @@ const distanceValue = document.querySelector("#distanceValue");
 const comboValue = document.querySelector("#comboValue");
 const heatFill = document.querySelector("#heatFill");
 const objectiveBar = document.querySelector("#objectiveBar");
+const runCoinsValue = document.querySelector("#runCoinsValue");
+const shieldValue = document.querySelector("#shieldValue");
 const startOverlay = document.querySelector("#startOverlay");
+const pauseOverlay = document.querySelector("#pauseOverlay");
 const resultOverlay = document.querySelector("#resultOverlay");
 const startBtn = document.querySelector("#startBtn");
 const restartBtn = document.querySelector("#restartBtn");
 const garageBtn = document.querySelector("#garageBtn");
+const resumeBtn = document.querySelector("#resumeBtn");
+const endRunBtn = document.querySelector("#endRunBtn");
+const pauseBtn = document.querySelector("#pauseBtn");
+const muteBtn = document.querySelector("#muteBtn");
 const leftBtn = document.querySelector("#leftBtn");
 const rightBtn = document.querySelector("#rightBtn");
 const brakeBtn = document.querySelector("#brakeBtn");
@@ -19,17 +26,23 @@ const boostBtn = document.querySelector("#boostBtn");
 const modeSelect = document.querySelector("#modeSelect");
 const carSelect = document.querySelector("#carSelect");
 const carStats = document.querySelector("#carStats");
+const bankCoinsValue = document.querySelector("#bankCoinsValue");
+const bestScoreValue = document.querySelector("#bestScoreValue");
 const resultKicker = document.querySelector("#resultKicker");
 const resultTitle = document.querySelector("#resultTitle");
 const finalScore = document.querySelector("#finalScore");
 const finalDistance = document.querySelector("#finalDistance");
 const finalNearMisses = document.querySelector("#finalNearMisses");
 const finalCoins = document.querySelector("#finalCoins");
+const finalBestScore = document.querySelector("#finalBestScore");
+const finalRunTime = document.querySelector("#finalRunTime");
 
 const LANES = 4;
 const ROAD_MARGIN = 0.11;
+const SAVE_KEY = "rushline-highway-heat-save-v2";
+const MAX_UPGRADE_LEVEL = 5;
 
-const CARS = {
+const BASE_CARS = {
   comet: {
     name: "Comet SX",
     color: "#20c7b4",
@@ -57,6 +70,14 @@ const CARS = {
     braking: 106,
     boost: 70,
   },
+};
+
+const UPGRADE_CONFIG = {
+  topSpeed: { label: "Engine", short: "Speed", baseCost: 90, step: 8 },
+  acceleration: { label: "Turbo", short: "Accel", baseCost: 80, step: 4 },
+  handling: { label: "Tires", short: "Grip", baseCost: 70, step: 0.55 },
+  braking: { label: "Brakes", short: "Brake", baseCost: 65, step: 7 },
+  boost: { label: "Battery", short: "Boost", baseCost: 85, step: 7 },
 };
 
 const MODES = {
@@ -88,24 +109,28 @@ const TRAFFIC = [
   { type: "bike", color: "#f4f7fa", speed: [78, 125], width: 0.28, height: 1.18 },
 ];
 
+let save = loadSave();
 let state;
 let rafId = 0;
 let lastTime = 0;
+let audioCtx = null;
 let view = { width: 0, height: 0, roadLeft: 0, roadWidth: 0, laneWidth: 0 };
 let pointerStart = null;
 const input = { brake: false, boost: false };
 
 function createState() {
   const mode = MODES[modeSelect.value];
-  const car = CARS[carSelect.value];
+  const car = getCarStats(carSelect.value);
   return {
     status: "menu",
+    pausedFrom: "running",
     mode,
     car,
     speed: 0,
     score: 0,
     distance: 0,
     coins: 0,
+    runCoins: 0,
     heat: 0,
     combo: 1,
     boostEnergy: 100,
@@ -117,67 +142,54 @@ function createState() {
     playerH: 82,
     roadOffset: 0,
     traffic: [],
+    pickups: [],
     particles: [],
-    spawnTimer: 0,
+    spawnTimer: 0.9,
+    pickupTimer: 1.8,
     nextSpawn: 0.65,
     elapsed: 0,
+    countdown: 0,
+    grace: 0,
     nearMisses: 0,
     overtakes: 0,
     objectiveComplete: false,
+    shield: false,
+    boosting: false,
+    difficulty: 1,
     shake: 0,
     messageFlash: "",
     messageTimer: 0,
   };
 }
 
-function resizeCanvas() {
-  const rect = canvas.getBoundingClientRect();
-  const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
-  canvas.width = Math.floor(rect.width * dpr);
-  canvas.height = Math.floor(rect.height * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  view.width = rect.width;
-  view.height = rect.height;
-  view.roadWidth = Math.min(rect.width * (1 - ROAD_MARGIN * 2), 520);
-  view.roadLeft = (rect.width - view.roadWidth) / 2;
-  view.laneWidth = view.roadWidth / LANES;
-  if (state) {
-    updatePlayerDimensions();
-    state.playerX = laneCenter(state.targetLane);
-    state.playerY = view.height * 0.76;
-  }
-}
-
-function updatePlayerDimensions() {
-  const width = clamp(view.laneWidth * 0.46, 34, 54);
-  state.playerW = width;
-  state.playerH = width * 1.82;
-}
-
-function laneCenter(lane) {
-  return view.roadLeft + view.laneWidth * (lane + 0.5);
-}
-
 function startRun() {
+  initAudio();
   state = createState();
-  state.status = "running";
+  state.status = "countdown";
+  state.countdown = 2.8;
   state.targetLane = Math.floor(LANES / 2) - 1;
   state.lane = state.targetLane;
   updatePlayerDimensions();
   state.playerX = laneCenter(state.targetLane);
   state.playerY = view.height * 0.76;
   startOverlay.classList.add("hidden");
+  pauseOverlay.classList.add("hidden");
   resultOverlay.classList.add("hidden");
+  pauseBtn.disabled = false;
+  pauseBtn.textContent = "Pause";
   lastTime = performance.now();
   cancelAnimationFrame(rafId);
   rafId = requestAnimationFrame(loop);
+  playTone(280, 0.08, "triangle", 0.03);
 }
 
 function loop(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.033);
   lastTime = now;
 
-  if (state.status === "running") {
+  if (state.status === "countdown") {
+    updateCountdown(dt);
+  } else if (state.status === "running") {
     update(dt);
   } else if (state.status === "finished") {
     updateParticles(dt);
@@ -188,12 +200,27 @@ function loop(now) {
   rafId = requestAnimationFrame(loop);
 }
 
+function updateCountdown(dt) {
+  state.countdown -= dt;
+  state.messageTimer = Math.max(0, state.messageTimer - dt);
+  if (state.countdown <= 0) {
+    state.status = "running";
+    state.grace = 1.25;
+    state.messageFlash = "GO";
+    state.messageTimer = 0.65;
+    playTone(520, 0.12, "square", 0.035);
+  }
+}
+
 function update(dt) {
   state.elapsed += dt;
+  state.grace = Math.max(0, state.grace - dt);
   state.messageTimer = Math.max(0, state.messageTimer - dt);
   state.shake = Math.max(0, state.shake - dt * 18);
+  state.difficulty = clamp(1 + state.distance / 2600 + state.elapsed / 210, 1, 2.35);
 
   const boostActive = input.boost && state.boostEnergy > 1 && state.speed > 72;
+  state.boosting = boostActive;
   const targetSpeed = input.brake ? 58 : state.car.topSpeed + (boostActive ? state.car.boost : 0);
   const rate = input.brake ? state.car.braking : state.car.acceleration;
   state.speed = approach(state.speed, targetSpeed, rate * dt);
@@ -202,7 +229,7 @@ function update(dt) {
     state.boostEnergy = Math.max(0, state.boostEnergy - 31 * dt);
     addSpeedParticles(3);
   } else {
-    const regen = input.brake ? 10 : 6;
+    const regen = input.brake ? 11 : 6.5;
     state.boostEnergy = Math.min(100, state.boostEnergy + regen * dt);
   }
 
@@ -213,13 +240,15 @@ function update(dt) {
 
   const meters = (state.speed * 1000 / 3600) * dt;
   state.distance += meters;
-  state.roadOffset = (state.roadOffset + state.speed * 2.4 * dt) % 80;
-  state.heat = Math.max(0, state.heat - (boostActive ? 2.5 : 7.5) * dt);
+  state.roadOffset = (state.roadOffset + state.speed * 2.45 * dt) % 80;
+  state.heat = Math.max(0, state.heat - (boostActive ? 2.5 : 7.2) * dt);
   state.combo = 1 + Math.floor(state.heat / 20) * 0.25;
   state.score += meters * 10 * state.combo;
 
   spawnTraffic(dt);
+  spawnPickups(dt);
   updateTraffic(dt);
+  updatePickups(dt);
   updateParticles(dt);
   checkObjectives();
 }
@@ -229,16 +258,20 @@ function spawnTraffic(dt) {
   if (state.spawnTimer > 0) return;
 
   const speedFactor = clamp(state.speed / 170, 0.4, 1.55);
-  state.nextSpawn = clamp((0.95 - speedFactor * 0.18) / state.mode.density, 0.34, 0.95);
+  const density = state.mode.density * state.difficulty;
+  state.nextSpawn = clamp((0.98 - speedFactor * 0.18) / density, 0.26, 0.95);
   state.spawnTimer = state.nextSpawn;
 
   const blockedLanes = new Set(
     state.traffic
-      .filter((car) => car.y < view.height * 0.22)
+      .filter((car) => car.y < view.height * 0.24)
       .map((car) => car.targetLane)
   );
 
-  const openLanes = Array.from({ length: LANES }, (_, lane) => lane).filter((lane) => !blockedLanes.has(lane));
+  let openLanes = Array.from({ length: LANES }, (_, lane) => lane).filter((lane) => !blockedLanes.has(lane));
+  if (state.elapsed < 3.2) {
+    openLanes = openLanes.filter((lane) => lane !== state.targetLane);
+  }
   if (!openLanes.length) return;
 
   const template = TRAFFIC[Math.floor(Math.random() * TRAFFIC.length)];
@@ -250,16 +283,35 @@ function spawnTraffic(dt) {
     lane,
     targetLane: lane,
     x: laneCenter(lane),
-    y: -height - Math.random() * 180,
+    y: -height - Math.random() * 220,
     w: width,
     h: height,
-    speed: random(template.speed[0], template.speed[1]),
+    speed: random(template.speed[0], template.speed[1] + state.difficulty * 8),
     passed: false,
     nearMissed: false,
     laneShiftTimer: random(2, 5),
   };
 
   state.traffic.push(trafficCar);
+}
+
+function spawnPickups(dt) {
+  state.pickupTimer -= dt;
+  if (state.pickupTimer > 0 || state.elapsed < 5) return;
+
+  state.pickupTimer = random(1.8, 3.4);
+  const lane = Math.floor(Math.random() * LANES);
+  const type = Math.random() < 0.78 ? "coin" : "shield";
+  const size = type === "coin" ? 19 : 22;
+  state.pickups.push({
+    type,
+    lane,
+    x: laneCenter(lane),
+    y: -size - random(20, 130),
+    r: size,
+    collected: false,
+    spin: random(0, Math.PI * 2),
+  });
 }
 
 function updateTraffic(dt) {
@@ -269,9 +321,8 @@ function updateTraffic(dt) {
     car.x += (laneCenter(car.targetLane) - car.x) * Math.min(1, 3.2 * dt);
     car.y += Math.max(90, (state.speed - car.speed) * 2.65 + 96) * dt;
 
-    if (overlaps(playerBox(), carBox(car))) {
-      crash();
-      return;
+    if (state.grace <= 0 && overlaps(playerBox(), carBox(car))) {
+      if (handleHit(car)) return;
     }
 
     if (!car.nearMissed && car.y + car.h > state.playerY - 8 && car.y < state.playerY + state.playerH) {
@@ -291,8 +342,23 @@ function updateTraffic(dt) {
   state.traffic = state.traffic.filter((car) => car.y < view.height + 180);
 }
 
+function updatePickups(dt) {
+  for (const pickup of state.pickups) {
+    pickup.y += Math.max(96, state.speed * 2.55 + 74) * dt;
+    pickup.spin += dt * 5;
+
+    if (!pickup.collected && overlapsCircleBox(pickup, playerBox())) {
+      pickup.collected = true;
+      collectPickup(pickup);
+    }
+  }
+
+  state.pickups = state.pickups.filter((pickup) => !pickup.collected && pickup.y < view.height + 80);
+}
+
 function maybeShiftTrafficLane(car) {
-  if (car.laneShiftTimer > 0 || car.y < 60 || Math.random() > 0.018) return;
+  const chance = 0.012 + state.difficulty * 0.004;
+  if (car.laneShiftTimer > 0 || car.y < 60 || Math.random() > chance) return;
   car.laneShiftTimer = random(2.5, 5);
   const direction = Math.random() > 0.5 ? 1 : -1;
   const nextLane = car.targetLane + direction;
@@ -312,12 +378,50 @@ function rewardNearMiss(car) {
   state.messageTimer = 0.7;
   state.shake = 2.5;
   addSpark(car.x, state.playerY);
+  playTone(420 + state.combo * 55, 0.05, "triangle", 0.025);
 }
 
 function rewardOvertake() {
   state.overtakes += 1;
   state.heat = Math.min(100, state.heat + 5);
   state.score += 90 * state.combo;
+}
+
+function collectPickup(pickup) {
+  if (pickup.type === "coin") {
+    const value = Math.round(8 + state.combo * 3);
+    state.runCoins += value;
+    state.score += 240 * state.combo;
+    state.heat = Math.min(100, state.heat + 6);
+    state.messageFlash = `+${value} Coins`;
+    playTone(640, 0.06, "sine", 0.035);
+  } else {
+    state.shield = true;
+    state.score += 350 * state.combo;
+    state.messageFlash = "Shield Ready";
+    playTone(320, 0.12, "square", 0.03);
+  }
+  state.messageTimer = 0.75;
+  addSpark(pickup.x, pickup.y);
+}
+
+function handleHit(car) {
+  if (state.shield) {
+    state.shield = false;
+    state.grace = 1.25;
+    state.speed *= 0.48;
+    state.score = Math.max(0, state.score - 220);
+    state.shake = 7;
+    state.messageFlash = "Shield Saved";
+    state.messageTimer = 0.9;
+    car.y = view.height + 240;
+    addExplosion(state.playerX, state.playerY);
+    playTone(170, 0.16, "sawtooth", 0.04);
+    return false;
+  }
+
+  crash();
+  return true;
 }
 
 function checkObjectives() {
@@ -338,21 +442,34 @@ function checkObjectives() {
 function crash() {
   state.shake = 8;
   addExplosion(state.playerX, state.playerY);
+  playTone(90, 0.24, "sawtooth", 0.045);
   finishRun("Crashed");
 }
 
 function finishRun(title) {
-  if (state.status !== "running") return;
+  if (!["running", "countdown", "paused"].includes(state.status)) return;
+  pauseOverlay.classList.add("hidden");
   state.status = "finished";
   state.speed = 0;
+  state.boosting = false;
   const bonus = state.objectiveComplete ? 120 : 0;
-  state.coins = Math.floor(state.score / 850) + state.nearMisses * 2 + Math.floor(state.distance / 220) + bonus;
+  state.coins = state.runCoins + Math.floor(state.score / 850) + state.nearMisses * 2 + Math.floor(state.distance / 220) + bonus;
+
+  save.runs += 1;
+  save.coins += state.coins;
+  save.bestScore = Math.max(save.bestScore, Math.floor(state.score));
+  save.bestDistance = Math.max(save.bestDistance, state.distance);
+  saveData();
+  updateGarageUi();
+
   resultKicker.textContent = state.objectiveComplete ? "Objective complete" : "Run complete";
   resultTitle.textContent = title;
   finalScore.textContent = Math.floor(state.score).toLocaleString("en-US");
   finalDistance.textContent = (state.distance / 1000).toFixed(2);
   finalNearMisses.textContent = state.nearMisses;
   finalCoins.textContent = state.coins;
+  finalBestScore.textContent = save.bestScore.toLocaleString("en-US");
+  finalRunTime.textContent = Math.floor(state.elapsed);
   setTimeout(() => resultOverlay.classList.remove("hidden"), 420);
 }
 
@@ -364,10 +481,12 @@ function draw() {
   ctx.translate(shakeX, shakeY);
   drawWorld();
   if (state) {
+    drawPickups();
     drawTraffic();
     drawPlayer();
     drawParticles();
     drawBoostGauge();
+    if (state.status === "countdown") drawCountdownText();
     if (state.messageTimer > 0) drawFlashText(state.messageFlash);
   }
   ctx.restore();
@@ -419,6 +538,8 @@ function drawWorld() {
     ctx.stroke();
   }
   ctx.setLineDash([]);
+
+  drawRoadSign();
 }
 
 function drawCitySide(left, right, horizon) {
@@ -442,13 +563,74 @@ function drawCitySide(left, right, horizon) {
   }
 }
 
+function drawRoadSign() {
+  if (!state || view.width < 560) return;
+  const x = view.roadLeft + view.roadWidth + 26;
+  const y = 220 + ((state.roadOffset * 1.5) % 160);
+  ctx.fillStyle = "rgba(255, 176, 46, 0.84)";
+  roundRect(x, y, 72, 34, 5);
+  ctx.fill();
+  ctx.fillStyle = "#081019";
+  ctx.font = "900 11px Inter, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("RUSH", x + 36, y + 14);
+  ctx.fillText("AHEAD", x + 36, y + 27);
+}
+
 function drawTraffic() {
   for (const car of state.traffic) {
     drawCar(car.x, car.y, car.w, car.h, car.color, false, car.type);
   }
 }
 
+function drawPickups() {
+  for (const pickup of state.pickups) {
+    ctx.save();
+    ctx.translate(pickup.x, pickup.y);
+    ctx.rotate(pickup.spin);
+    if (pickup.type === "coin") {
+      ctx.fillStyle = "#ffcf4a";
+      ctx.beginPath();
+      ctx.arc(0, 0, pickup.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.7)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, pickup.r * 0.66, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#5d3900";
+      ctx.font = "900 14px Inter, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("C", 0, 1);
+    } else {
+      ctx.fillStyle = "rgba(79, 140, 255, 0.92)";
+      ctx.beginPath();
+      ctx.moveTo(0, -pickup.r);
+      ctx.lineTo(pickup.r, 0);
+      ctx.lineTo(0, pickup.r);
+      ctx.lineTo(-pickup.r, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.82)";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
 function drawPlayer() {
+  if (state.shield || state.grace > 0) {
+    ctx.save();
+    ctx.globalAlpha = state.shield ? 0.95 : 0.34;
+    ctx.strokeStyle = state.shield ? "rgba(79, 140, 255, 0.95)" : "rgba(255,255,255,0.62)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(state.playerX, state.playerY, state.playerW * 0.72, state.playerH * 0.62, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
   drawCar(state.playerX, state.playerY, state.playerW, state.playerH, state.car.color, true, "player");
 }
 
@@ -483,7 +665,7 @@ function drawCar(x, y, w, h, color, isPlayer, type) {
   ctx.fill();
 
   if (isPlayer) {
-    ctx.fillStyle = "rgba(32, 199, 180, 0.38)";
+    ctx.fillStyle = state.boosting ? "rgba(255, 176, 46, 0.62)" : "rgba(32, 199, 180, 0.38)";
     ctx.beginPath();
     ctx.moveTo(-w * 0.22, h * 0.52);
     ctx.lineTo(0, h * 0.9 + state.speed * 0.08);
@@ -510,6 +692,19 @@ function drawBoostGauge() {
   const fillH = h * state.boostEnergy / 100;
   roundRect(x, y + h - fillH, 10, fillH, 999);
   ctx.fill();
+}
+
+function drawCountdownText() {
+  const text = state.countdown > 0.6 ? String(Math.ceil(state.countdown)) : "GO";
+  ctx.save();
+  ctx.globalAlpha = 0.94;
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 70px Inter, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.shadowColor = "rgba(255, 176, 46, 0.8)";
+  ctx.shadowBlur = 24;
+  ctx.fillText(text, view.width / 2, view.height * 0.42);
+  ctx.restore();
 }
 
 function drawFlashText(text) {
@@ -560,7 +755,7 @@ function addSpeedParticles(count) {
       vx: random(-18, 18),
       vy: random(180, 310),
       life: random(0.12, 0.24),
-      color: "#20c7b4",
+      color: state.boosting ? "#ffb02e" : "#20c7b4",
       size: random(1.5, 3),
     });
   }
@@ -594,8 +789,15 @@ function updateHud() {
   distanceValue.textContent = (state.distance / 1000).toFixed(1);
   comboValue.textContent = `x${state.combo.toFixed(1)}`;
   heatFill.style.width = `${state.heat}%`;
+  runCoinsValue.textContent = `${state.runCoins} coins`;
+  shieldValue.textContent = state.shield ? "Shield ready" : state.grace > 0 ? "Grace" : "Shield off";
+  shieldValue.classList.toggle("active", state.shield || state.grace > 0);
+  muteBtn.textContent = save.muted ? "Sound Off" : "Sound On";
+  pauseBtn.disabled = !["running", "countdown", "paused"].includes(state.status);
 
-  if (state.mode === MODES.time) {
+  if (state.status === "countdown") {
+    objectiveBar.textContent = "Get ready";
+  } else if (state.mode === MODES.time) {
     const remaining = Math.max(0, Math.ceil(state.mode.timeLimit - state.elapsed));
     objectiveBar.textContent = `${remaining}s - target ${state.mode.target.toLocaleString("en-US")}`;
   } else if (state.mode === MODES.challenge) {
@@ -605,19 +807,102 @@ function updateHud() {
   }
 }
 
-function updateCarStats() {
-  const car = CARS[carSelect.value];
-  carStats.innerHTML = `
-    <div><span>Speed</span><strong>${car.topSpeed}</strong></div>
-    <div><span>Accel</span><strong>${car.acceleration}</strong></div>
+function updateGarageUi() {
+  const key = carSelect.value;
+  const car = getCarStats(key);
+  const upgrades = save.upgrades[key];
+  const statCards = `
+    <div><span>Speed</span><strong>${Math.round(car.topSpeed)}</strong></div>
+    <div><span>Accel</span><strong>${Math.round(car.acceleration)}</strong></div>
     <div><span>Grip</span><strong>${car.handling.toFixed(1)}</strong></div>
-    <div><span>Boost</span><strong>${car.boost}</strong></div>
+    <div><span>Boost</span><strong>${Math.round(car.boost)}</strong></div>
   `;
+  const upgradeCards = Object.entries(UPGRADE_CONFIG).map(([upgradeKey, config]) => {
+    const level = upgrades[upgradeKey];
+    const maxed = level >= MAX_UPGRADE_LEVEL;
+    const cost = getUpgradeCost(level, config.baseCost);
+    const disabled = maxed || save.coins < cost;
+    const action = maxed ? "Max" : `${cost} coins`;
+    return `
+      <div class="upgrade-card">
+        <span>${config.label}</span>
+        <strong>Lv ${level}/${MAX_UPGRADE_LEVEL}</strong>
+        <button type="button" data-upgrade="${upgradeKey}" ${disabled ? "disabled" : ""}>${action}</button>
+      </div>
+    `;
+  }).join("");
+
+  carStats.innerHTML = statCards + upgradeCards;
+  bankCoinsValue.textContent = `${save.coins} bank coins`;
+  bestScoreValue.textContent = `Best ${save.bestScore.toLocaleString("en-US")}`;
+  muteBtn.textContent = save.muted ? "Sound Off" : "Sound On";
+}
+
+function buyUpgrade(upgradeKey) {
+  const carKey = carSelect.value;
+  const config = UPGRADE_CONFIG[upgradeKey];
+  if (!config) return;
+
+  const level = save.upgrades[carKey][upgradeKey];
+  if (level >= MAX_UPGRADE_LEVEL) return;
+
+  const cost = getUpgradeCost(level, config.baseCost);
+  if (save.coins < cost) return;
+
+  save.coins -= cost;
+  save.upgrades[carKey][upgradeKey] += 1;
+  saveData();
+  updateGarageUi();
+  state = createState();
+  resizeCanvas();
+  draw();
+  updateHud();
+  playTone(560, 0.08, "triangle", 0.03);
+}
+
+function getUpgradeCost(level, baseCost) {
+  return Math.round(baseCost * Math.pow(1.62, level));
+}
+
+function getCarStats(key) {
+  const base = BASE_CARS[key];
+  const upgrades = save.upgrades[key];
+  return {
+    key,
+    name: base.name,
+    color: base.color,
+    topSpeed: base.topSpeed + upgrades.topSpeed * UPGRADE_CONFIG.topSpeed.step,
+    acceleration: base.acceleration + upgrades.acceleration * UPGRADE_CONFIG.acceleration.step,
+    handling: base.handling + upgrades.handling * UPGRADE_CONFIG.handling.step,
+    braking: base.braking + upgrades.braking * UPGRADE_CONFIG.braking.step,
+    boost: base.boost + upgrades.boost * UPGRADE_CONFIG.boost.step,
+  };
 }
 
 function moveLane(direction) {
   if (!state || state.status !== "running") return;
   state.targetLane = clamp(state.targetLane + direction, 0, LANES - 1);
+}
+
+function pauseRun() {
+  if (!["running", "countdown"].includes(state.status)) return;
+  state.pausedFrom = state.status;
+  state.status = "paused";
+  pauseOverlay.classList.remove("hidden");
+  pauseBtn.textContent = "Resume";
+}
+
+function resumeRun() {
+  if (state.status !== "paused") return;
+  state.status = state.pausedFrom || "running";
+  pauseOverlay.classList.add("hidden");
+  pauseBtn.textContent = "Pause";
+  lastTime = performance.now();
+}
+
+function togglePause() {
+  if (state.status === "paused") resumeRun();
+  else pauseRun();
 }
 
 function playerBox() {
@@ -640,6 +925,42 @@ function carBox(car) {
 
 function overlaps(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function overlapsCircleBox(circle, box) {
+  const closestX = clamp(circle.x, box.x, box.x + box.w);
+  const closestY = clamp(circle.y, box.y, box.y + box.h);
+  const dx = circle.x - closestX;
+  const dy = circle.y - closestY;
+  return dx * dx + dy * dy < circle.r * circle.r;
+}
+
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+  canvas.width = Math.floor(rect.width * dpr);
+  canvas.height = Math.floor(rect.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  view.width = rect.width;
+  view.height = rect.height;
+  view.roadWidth = Math.min(rect.width * (1 - ROAD_MARGIN * 2), 520);
+  view.roadLeft = (rect.width - view.roadWidth) / 2;
+  view.laneWidth = view.roadWidth / LANES;
+  if (state) {
+    updatePlayerDimensions();
+    state.playerX = laneCenter(state.targetLane);
+    state.playerY = view.height * 0.76;
+  }
+}
+
+function updatePlayerDimensions() {
+  const width = clamp(view.laneWidth * 0.46, 34, 54);
+  state.playerW = width;
+  state.playerH = width * 1.82;
+}
+
+function laneCenter(lane) {
+  return view.roadLeft + view.laneWidth * (lane + 0.5);
 }
 
 function clamp(value, min, max) {
@@ -687,6 +1008,79 @@ function shade(hex, amount) {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
+function initAudio() {
+  if (save.muted || audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch (error) {
+    audioCtx = null;
+  }
+}
+
+function playTone(frequency, duration, type = "sine", gain = 0.025) {
+  if (save.muted) return;
+  initAudio();
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const amp = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = frequency;
+  amp.gain.value = gain;
+  osc.connect(amp);
+  amp.connect(audioCtx.destination);
+  osc.start();
+  amp.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+function defaultUpgrades() {
+  return {
+    topSpeed: 0,
+    acceleration: 0,
+    handling: 0,
+    braking: 0,
+    boost: 0,
+  };
+}
+
+function createDefaultSave() {
+  const upgrades = {};
+  Object.keys(BASE_CARS).forEach((key) => {
+    upgrades[key] = defaultUpgrades();
+  });
+  return {
+    coins: 120,
+    bestScore: 0,
+    bestDistance: 0,
+    runs: 0,
+    muted: false,
+    upgrades,
+  };
+}
+
+function loadSave() {
+  const fallback = createDefaultSave();
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if (!parsed || typeof parsed !== "object") return fallback;
+    const merged = { ...fallback, ...parsed, upgrades: { ...fallback.upgrades, ...parsed.upgrades } };
+    Object.keys(BASE_CARS).forEach((key) => {
+      merged.upgrades[key] = { ...defaultUpgrades(), ...merged.upgrades[key] };
+    });
+    return merged;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function saveData() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(save));
+  } catch (error) {
+    // Progress is optional; the game remains playable if storage is blocked.
+  }
+}
+
 function bindHold(button, key, activeClass = true) {
   const on = (event) => {
     event.preventDefault();
@@ -711,17 +1105,43 @@ bindHold(boostBtn, "boost");
 
 startBtn.addEventListener("click", startRun);
 restartBtn.addEventListener("click", startRun);
+resumeBtn.addEventListener("click", resumeRun);
+endRunBtn.addEventListener("click", () => finishRun("Run Ended"));
+pauseBtn.addEventListener("click", togglePause);
+muteBtn.addEventListener("click", () => {
+  save.muted = !save.muted;
+  saveData();
+  updateGarageUi();
+  updateHud();
+});
+
 garageBtn.addEventListener("click", () => {
   resultOverlay.classList.add("hidden");
   startOverlay.classList.remove("hidden");
   state = createState();
+  resizeCanvas();
   draw();
   updateHud();
 });
 
-carSelect.addEventListener("change", updateCarStats);
+carStats.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-upgrade]");
+  if (!button) return;
+  buyUpgrade(button.dataset.upgrade);
+});
+
+carSelect.addEventListener("change", () => {
+  updateGarageUi();
+  state = createState();
+  resizeCanvas();
+  draw();
+  updateHud();
+});
+
 modeSelect.addEventListener("change", () => {
   state = createState();
+  resizeCanvas();
+  draw();
   updateHud();
 });
 
@@ -740,15 +1160,18 @@ canvas.addEventListener("pointerup", (event) => {
 });
 
 window.addEventListener("keydown", (event) => {
-  if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") moveLane(-1);
-  if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") moveLane(1);
-  if (event.key === "ArrowDown" || event.key.toLowerCase() === "s") input.brake = true;
-  if (event.key === " " || event.key === "ArrowUp" || event.key.toLowerCase() === "w") input.boost = true;
+  const key = event.key.toLowerCase();
+  if (key === "arrowleft" || key === "a") moveLane(-1);
+  if (key === "arrowright" || key === "d") moveLane(1);
+  if (key === "arrowdown" || key === "s") input.brake = true;
+  if (key === " " || key === "arrowup" || key === "w") input.boost = true;
+  if (key === "p" || key === "escape") togglePause();
 });
 
 window.addEventListener("keyup", (event) => {
-  if (event.key === "ArrowDown" || event.key.toLowerCase() === "s") input.brake = false;
-  if (event.key === " " || event.key === "ArrowUp" || event.key.toLowerCase() === "w") input.boost = false;
+  const key = event.key.toLowerCase();
+  if (key === "arrowdown" || key === "s") input.brake = false;
+  if (key === " " || key === "arrowup" || key === "w") input.boost = false;
 });
 
 window.addEventListener("resize", () => {
@@ -757,7 +1180,7 @@ window.addEventListener("resize", () => {
 });
 
 state = createState();
-updateCarStats();
+updateGarageUi();
 resizeCanvas();
 draw();
 updateHud();
