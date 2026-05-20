@@ -41,6 +41,7 @@ const LANES = 4;
 const ROAD_MARGIN = 0.11;
 const SAVE_KEY = "rushline-highway-heat-save-v2";
 const MAX_UPGRADE_LEVEL = 5;
+const SCENERY_LOOP = 420;
 
 const BASE_CARS = {
   comet: {
@@ -242,7 +243,7 @@ function update(dt) {
   const meters = (state.speed * 1000 / 3600) * dt;
   state.distance += meters;
   state.roadOffset = (state.roadOffset + state.speed * 2.45 * dt) % 80;
-  state.sceneryOffset = (state.sceneryOffset + Math.max(90, state.speed * 2.05) * dt) % (view.height + 360);
+  state.sceneryOffset += Math.max(90, state.speed * 2.05) * dt;
   state.heat = Math.max(0, state.heat - (boostActive ? 2.5 : 7.2) * dt);
   state.combo = 1 + Math.floor(state.heat / 20) * 0.25;
   state.score += meters * 10 * state.combo;
@@ -503,8 +504,8 @@ function drawWorld() {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, view.width, view.height);
 
-  drawCitySide(0, view.roadLeft - 12, horizon);
-  drawCitySide(view.roadLeft + view.roadWidth + 12, view.width, horizon);
+  drawCitySide(0, view.roadLeft - 12, horizon, -1);
+  drawCitySide(view.roadLeft + view.roadWidth + 12, view.width, horizon, 1);
 
   ctx.fillStyle = "#151b21";
   ctx.fillRect(view.roadLeft - 22, 0, view.roadWidth + 44, view.height);
@@ -544,32 +545,108 @@ function drawWorld() {
   drawRoadSign();
 }
 
-function drawCitySide(left, right, horizon) {
+function drawCitySide(left, right, horizon, side) {
   if (right <= left) return;
   const width = right - left;
+  const roadEdge = side < 0 ? right : left;
+  const shoulderX = side < 0 ? right - Math.min(34, width) : left;
+  const shoulderW = Math.min(34, width);
+
   ctx.fillStyle = "#0d1722";
   ctx.fillRect(left, horizon, width, view.height - horizon);
 
-  for (let i = 0; i < 12; i += 1) {
-    const buildingW = width / 8 + (i % 3) * 7;
-    const x = left + ((i * 53 + (state?.roadOffset || 0) * 0.16) % (width + buildingW)) - buildingW;
-    const h = 70 + ((i * 37) % 90);
-    ctx.fillStyle = i % 2 ? "#122539" : "#172c3d";
-    ctx.fillRect(x, horizon - h * 0.2, buildingW, h + view.height);
+  drawDistantSkyline(left, right, horizon, side);
 
-    ctx.fillStyle = i % 3 ? "rgba(32,199,180,0.28)" : "rgba(255,176,46,0.28)";
-    for (let y = horizon + 14; y < view.height; y += 44) {
-      ctx.fillRect(x + 9, y, 4, 10);
-      ctx.fillRect(x + buildingW - 15, y + 16, 4, 10);
+  const ground = ctx.createLinearGradient(left, horizon, right, horizon);
+  if (side < 0) {
+    ground.addColorStop(0, "#0b1520");
+    ground.addColorStop(1, "#152331");
+  } else {
+    ground.addColorStop(0, "#152331");
+    ground.addColorStop(1, "#0b1520");
+  }
+  ctx.fillStyle = ground;
+  ctx.fillRect(left, horizon + 82, width, view.height - horizon - 82);
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.045)";
+  const surfaceSpacing = 116;
+  const surfaceOffset = (state?.sceneryOffset || 0) % surfaceSpacing;
+  for (let i = -1; i < 10; i += 1) {
+    const y = horizon + surfaceOffset + i * surfaceSpacing;
+    ctx.fillRect(left, y, width, 2);
+  }
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.10)";
+  ctx.fillRect(shoulderX, horizon, shoulderW, view.height - horizon);
+
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(roadEdge, horizon);
+  ctx.lineTo(roadEdge, view.height);
+  ctx.stroke();
+
+  drawRoadsidePosts(roadEdge, horizon, side);
+}
+
+function drawDistantSkyline(left, right, horizon, side) {
+  const width = right - left;
+  const buildingCount = Math.max(4, Math.ceil(width / 38));
+
+  for (let i = 0; i < buildingCount; i += 1) {
+    const buildingW = 24 + ((i * 17 + (side > 0 ? 9 : 0)) % 26);
+    const gap = 9 + (i % 3) * 3;
+    const x = left + (i * (buildingW + gap)) % (width + buildingW) - (side < 0 ? buildingW * 0.2 : 0);
+    const h = 54 + ((i * 31 + (side > 0 ? 13 : 0)) % 86);
+    const y = horizon + 80 - h;
+
+    ctx.fillStyle = i % 2 ? "rgba(19, 40, 58, 0.92)" : "rgba(15, 31, 48, 0.92)";
+    ctx.fillRect(x, y, buildingW, h);
+
+    ctx.fillStyle = i % 3 === 0 ? "rgba(255, 176, 46, 0.20)" : "rgba(32, 199, 180, 0.16)";
+    const windowCols = Math.max(1, Math.floor(buildingW / 13));
+    for (let col = 0; col < windowCols; col += 1) {
+      for (let row = 0; row < 3; row += 1) {
+        const wx = x + 7 + col * 12;
+        const wy = y + 14 + row * 18;
+        if (wy < horizon + 68 && wx + 4 < right) ctx.fillRect(wx, wy, 4, 7);
+      }
     }
+  }
+}
+
+function drawRoadsidePosts(roadEdge, horizon, side) {
+  const spacing = 118;
+  const offset = (state?.sceneryOffset || 0) % spacing;
+  const xBase = roadEdge + side * 14;
+
+  for (let i = -1; i < 10; i += 1) {
+    const y = horizon + offset + i * spacing - spacing;
+    if (y < horizon - 60 || y > view.height + 70) continue;
+
+    const depth = clamp((y - horizon) / (view.height - horizon), 0, 1);
+    const scale = 0.42 + depth * 0.75;
+    const x = xBase + side * depth * 18;
+    const postH = 18 + scale * 34;
+
+    ctx.strokeStyle = "rgba(215, 225, 230, 0.28)";
+    ctx.lineWidth = Math.max(1, 2 * scale);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x, y + postH);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+    roundRect(x - scale * 4, y - scale * 2, scale * 8, scale * 5, scale * 2);
+    ctx.fill();
   }
 }
 
 function drawRoadSign() {
   if (!state || view.width < 560) return;
   const roadRight = view.roadLeft + view.roadWidth;
-  const spacing = 420;
-  const startY = -150 + state.sceneryOffset;
+  const spacing = SCENERY_LOOP;
+  const startY = -150 + (state.sceneryOffset % spacing);
 
   for (let i = -1; i < 3; i += 1) {
     const y = startY + i * spacing;
